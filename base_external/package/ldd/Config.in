@@ -1,0 +1,4 @@
+config BR2_PACKAGE_LDD
+    bool "ldd kernel modules"
+    help
+      Builds and installs LDD kernel modules (misc-modules, scull)

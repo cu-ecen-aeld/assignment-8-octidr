@@ -1,0 +1,98 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          lddmodules
+# Required-Start:    $local_fs
+# Required-Stop:     
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Load LDD modules and create device nodes
+### END INIT INFO
+
+MODULES="hello faulty scull"
+SCULL_DEVS="scull0 scull1 scull2 scull3 scullpipe0 scullpipe1 scullpipe2 scullpipe3 scullsingle sculluid scullwuid scullpriv"
+
+# Helper function to create /dev node if module provides major number
+create_dev() {
+    local mod=$1
+    local dev=$2
+    local major
+    local group
+    local mode="664"
+
+    # Check for admin group
+    if grep -q '^staff:' /etc/group; then
+        group="staff"
+    else
+        group="wheel"
+    fi
+
+    # Load module first if not already loaded
+    if ! lsmod | grep -q "^$mod"; then
+        insmod /lib/modules/$(uname -r)/$mod.ko || return 1
+    fi
+
+    # Get major number
+    major=$(awk "\$2==\"$mod\" {print \$1}" /proc/devices)
+    if [ -z "$major" ]; then
+        echo "No major number for $mod, skipping device $dev"
+        return 1
+    fi
+
+    # Remove stale device node
+    rm -f /dev/$dev
+    # Create character device
+    mknod /dev/$dev c $major 0
+    chgrp $group /dev/$dev
+    chmod $mode /dev/$dev
+}
+
+start() {
+    echo "Loading LDD modules"
+
+    # Load hello module (no device node needed)
+    modprobe hello
+
+    # Load faulty and create device node
+    modprobe faulty
+    create_dev faulty faulty || echo "Failed to create /dev/faulty"
+
+    # Load scull module and create all device nodes
+    modprobe scull
+    for dev in $SCULL_DEVS; do
+        create_dev scull $dev || echo "Failed to create /dev/$dev"
+    done
+}
+
+stop() {
+    echo "Unloading LDD modules"
+
+    # Remove device nodes first
+    rm -f /dev/faulty
+    for dev in $SCULL_DEVS; do
+        rm -f /dev/$dev
+    done
+
+    # Unload modules in reverse order
+    rmmod scull
+    rmmod faulty
+    rmmod hello
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        stop
+        start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
